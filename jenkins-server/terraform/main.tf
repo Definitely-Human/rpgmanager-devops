@@ -12,13 +12,13 @@ terraform {
     }
   }
 
-  # backend "s3" {
-  #   bucket = "terraform-lrn"
-  #   key    = "dev/eks-cluster/terraform.tfstate"
-  #   region = "eu-central-1"
+  backend "s3" {
+    bucket = "rpg-project-tfstate"
+    key    = "dev/jenkins/terraform.tfstate"
+    region = "eu-central-1"
 
-  #   dynamodb_table = "dev-ekscluster"
-  # }
+    dynamodb_table = "rpg-terraform-jenkins"
+  }
 
 }
 
@@ -129,7 +129,7 @@ resource "null_resource" "execute_ansible" {
   # set permissions and run the install_jenkins.sh file
 
   provisioner "local-exec" {
-    command = "echo 'Waiting...' && sleep 5 && ANSIBLE_CONFIG=../ansible/ansible.cfg ansible-playbook ../ansible/playbook.yaml"
+    command = "echo 'Waiting...' && sleep 5 && ANSIBLE_CONFIG=../ansible/ansible.cfg ansible-playbook ../ansible/playbook.yaml  "
 
   }
 

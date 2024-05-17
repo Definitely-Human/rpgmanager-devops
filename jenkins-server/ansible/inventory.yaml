@@ -1,1 +1,3 @@
+---
 plugin: cloud.terraform.terraform_provider
+state_file: "" # Use remote Terraform state by specifying empty string
