@@ -49,37 +49,23 @@ resource "aws_default_subnet" "default_az1" {
   }
 }
 
+locals {
+  name = "rpg-project" # TODO: Import name from VPC project
+}
 
-# create security group for the ec2 instance
-resource "aws_security_group" "ec2_security_group" {
-  name        = "ec2 security group"
-  description = "allow access on ports 8080 and 22"
-  vpc_id      = aws_default_vpc.default_vpc.id
+module "jenkins_sg" {
+  source  = "terraform-aws-modules/security-group/aws"
+  version = "5.1.2"
 
-  # allow access on port 8080
-  ingress {
-    description      = "http proxy access"
-    from_port        = 8080
-    to_port          = 8080
-    protocol         = "tcp"
-    cidr_blocks      = ["0.0.0.0/0"]
-  }
+  name = "${local.name}-jenkins-sg"
+  description = "Security group for SSH Port and 8080 to be open for everybody for Jenkins."
+  vpc_id = aws_default_vpc.default_vpc.id
 
-  # allow access on port 22
-  ingress {
-    description      = "ssh access"
-    from_port        = 22
-    to_port          = 22
-    protocol         = "tcp"
-    cidr_blocks      = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port        = 0
-    to_port          = 0
-    protocol         = -1
-    cidr_blocks      = ["0.0.0.0/0"]
-  }
+  #Ingress rules
+  ingress_rules = ["ssh-tcp", "http-8080-tcp"]
+  ingress_cidr_blocks = ["0.0.0.0/0"]
+  #Egress rules
+  egress_rules = ["all-all"]
 
   tags   = {
     Name = "Jenkins server security group"
@@ -118,9 +104,9 @@ data "aws_ami" "amz_linux2" {
 # launch the ec2 instance and install website
 resource "aws_instance" "jenkins_ec2_instance" {
   ami                    = data.aws_ami.amz_linux2.id
-  instance_type          = "t3.medium"
+  instance_type          = var.jenkins_instance_size
   subnet_id              = aws_default_subnet.default_az1.id
-  vpc_security_group_ids = [aws_security_group.ec2_security_group.id]
+  vpc_security_group_ids = [module.jenkins_sg.security_group_id]
   key_name               = var.keypair
 
   tags = {
@@ -136,20 +122,20 @@ resource "null_resource" "execute_ansible" {
   connection {
     type        = "ssh"
     user        = "ec2-user"
-    private_key = file("~/.ssh/rpg-project-key.pem")
+    private_key = file(var.key_path)
     host        = aws_instance.jenkins_ec2_instance.public_ip
   }
 
   # set permissions and run the install_jenkins.sh file
 
   provisioner "local-exec" {
-    command = "ansible-playbook -i ../ansible/inventory.yaml ../ansible/playbook.yaml"
+    command = "echo 'Waiting...' && sleep 5 && ANSIBLE_CONFIG=../ansible/ansible.cfg ansible-playbook ../ansible/playbook.yaml"
 
   }
 
   provisioner "remote-exec" {
     inline = [
-      "sudo /var/lib/jenkins/secrets/initialAdminPassword",
+      "echo \"Admin password: $(sudo cat /var/lib/jenkins/secrets/initialAdminPassword)\"",
     ]
   }
   # wait for ec2 to be created
@@ -168,7 +154,7 @@ resource "ansible_host" "jenkins_host" {
 
   variables = {
       ansible_user = "ec2-user",
-      ansible_ssh_private_key_file = "~/.ssh/rpg-project-key.pem",
+      ansible_ssh_private_key_file = var.key_path,
       ansible_python_interpreter   = "/usr/bin/python3",
   }
 }
