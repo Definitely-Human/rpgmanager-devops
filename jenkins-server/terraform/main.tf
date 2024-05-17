@@ -12,13 +12,13 @@ terraform {
     }
   }
 
-  backend "s3" {
-    bucket = "rpg-project-tfstate"
-    key    = "dev/jenkins/terraform.tfstate"
-    region = "eu-central-1"
+  # backend "s3" {
+  #   bucket = "rpg-project-tfstate"
+  #   key    = "dev/jenkins/terraform.tfstate"
+  #   region = "eu-central-1"
 
-    dynamodb_table = "rpg-terraform-jenkins"
-  }
+  #   dynamodb_table = "rpg-terraform-jenkins"
+  # }
 
 }
 
@@ -27,27 +27,6 @@ provider "aws" {
   profile = "default"
 }
 
-# create default vpc if one does not exit
-resource "aws_default_vpc" "default_vpc" {
-
-  tags    = {
-    Name  = "default vpc"
-  }
-}
-
-
-# use data source to get all avalablility zones in region
-data "aws_availability_zones" "available_zones" {}
-
-
-# create default subnet if one does not exit
-resource "aws_default_subnet" "default_az1" {
-  availability_zone = data.aws_availability_zones.available_zones.names[0]
-
-  tags   = {
-    Name = "default subnet"
-  }
-}
 
 locals {
   name = "rpg-project" # TODO: Import name from VPC project
@@ -59,7 +38,7 @@ module "jenkins_sg" {
 
   name = "${local.name}-jenkins-sg"
   description = "Security group for SSH Port and 8080 to be open for everybody for Jenkins."
-  vpc_id = aws_default_vpc.default_vpc.id
+  vpc_id = data.terraform_remote_state.vpc.outputs.vpc_id
 
   #Ingress rules
   ingress_rules = ["ssh-tcp", "http-8080-tcp"]
@@ -105,7 +84,7 @@ data "aws_ami" "amz_linux2" {
 resource "aws_instance" "jenkins_ec2_instance" {
   ami                    = data.aws_ami.amz_linux2.id
   instance_type          = var.jenkins_instance_size
-  subnet_id              = aws_default_subnet.default_az1.id
+  subnet_id              = data.terraform_remote_state.vpc.outputs.private_subnets[0]
   vpc_security_group_ids = [module.jenkins_sg.security_group_id]
   key_name               = var.keypair
 
@@ -116,45 +95,40 @@ resource "aws_instance" "jenkins_ec2_instance" {
 
 
 # an empty resource block
-resource "null_resource" "execute_ansible" {
+# resource "null_resource" "execute_ansible" {
 
-  # ssh into the ec2 instance
-  connection {
-    type        = "ssh"
-    user        = "ec2-user"
-    private_key = file(var.key_path)
-    host        = aws_instance.jenkins_ec2_instance.public_ip
-  }
+#   # ssh into the ec2 instance
+#   connection {
+#     type        = "ssh"
+#     user        = "ec2-user"
+#     private_key = file(var.key_path)
+#     host        = aws_instance.jenkins_ec2_instance.public_ip
+#   }
 
-  # set permissions and run the install_jenkins.sh file
+#   # set permissions and run the install_jenkins.sh file
 
-  provisioner "local-exec" {
-    command = "echo 'Waiting...' && sleep 5 && ANSIBLE_CONFIG=../ansible/ansible.cfg ansible-playbook ../ansible/playbook.yaml  "
+#   provisioner "local-exec" {
+#     command = "echo 'Waiting...' && sleep 5 && ANSIBLE_CONFIG=../ansible/ansible.cfg ansible-playbook ../ansible/playbook.yaml  "
 
-  }
+#   }
 
-  provisioner "remote-exec" {
-    inline = [
-      "echo \"Admin password: $(sudo cat /var/lib/jenkins/secrets/initialAdminPassword)\"",
-    ]
-  }
-  # wait for ec2 to be created
-  depends_on = [aws_instance.jenkins_ec2_instance, ansible_host.jenkins_host]
-}
+#   provisioner "remote-exec" {
+#     inline = [
+#       "echo \"Admin password: $(sudo cat /var/lib/jenkins/secrets/initialAdminPassword)\"",
+#     ]
+#   }
+#   # wait for ec2 to be created
+#   depends_on = [aws_instance.jenkins_ec2_instance, ansible_host.jenkins_host]
+# }
 
 
-# print the url of the jenkins server
-output "website_url" {
-  value     = join ("", ["http://", aws_instance.jenkins_ec2_instance.public_dns, ":", "8080"])
-}
+# resource "ansible_host" "jenkins_host" {
+#   name = aws_instance.jenkins_ec2_instance.public_ip
+#   groups = ["jenkins"]
 
-resource "ansible_host" "jenkins_host" {
-  name = aws_instance.jenkins_ec2_instance.public_ip
-  groups = ["jenkins"]
-
-  variables = {
-      ansible_user = "ec2-user",
-      ansible_ssh_private_key_file = var.key_path,
-      ansible_python_interpreter   = "/usr/bin/python3",
-  }
-}
+#   variables = {
+#       ansible_user = "ec2-user",
+#       ansible_ssh_private_key_file = var.key_path,
+#       ansible_python_interpreter   = "/usr/bin/python3",
+#   }
+# }
